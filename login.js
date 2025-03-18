@@ -17,7 +17,19 @@ async function delayTime(ms) {
   for (const account of accounts) {
     const { username, password, panelnum } = account;
 
-    const browser = await puppeteer.launch({ headless: false });
+    // 修改点：在 launch() 中添加沙盒禁用参数
+    const browser = await puppeteer.launch({
+      headless: false,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process'
+      ]
+    });
     const page = await browser.newPage();
 
     let url = `https://panel${panelnum}.serv00.com/login/?next=/`;
