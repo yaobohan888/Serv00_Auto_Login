@@ -68,16 +68,19 @@ async function delayTime(ms) {
                 // ✨【重大修改点 2】: 增加等待时间至 15 秒 (15000ms)。
                 await page.waitForSelector('#id_username', { timeout: 15000 });
                 
-                // 清空用户名输入框的原有值：点击三次选中内容，然后按退格键清除
-                await page.click('#id_username', { clickCount: 3 }); 
-                await page.keyboard.press('Backspace');
+                // 清空用户名输入框的原有值
+                // ✨【新增修改点 7】: 使用 evaluate 强制清空输入框值，替代容易出错的 triple-click + backspace。
+                await page.evaluate(() => {
+                    const input = document.querySelector('#id_username');
+                    if (input) input.value = '';
+                });
 
                 // 2. 输入实际的账号和密码
                 await page.type('#id_username', username);
                 await page.type('#id_password', password);
 
                 // 3. 等待并点击登录按钮
-                // ✨【重大修改点 3】: 采用最鲁棒的组合选择器，同时查找 input 和 button 类型的提交按钮，以及常见的 ID/Class。
+                // ✨【重大修改点 3】: 采用最鲁棒的组合选择器。
                 const loginButtonSelector = 'input[type="submit"], button[type="submit"], #submit, .btn-primary, .btn-success';
                 
                 // 强制等待登录按钮加载完成。
@@ -85,7 +88,16 @@ async function delayTime(ms) {
                 await page.waitForSelector(loginButtonSelector, { timeout: 15000 });
                 
                 // 提交登录表单
-                await page.click(loginButtonSelector);
+                // ✨【新增修改点 8】: 使用 page.evaluate + 原生 click()，并强制滚动到视图中央，解决 "Node is not clickable" 错误。
+                await page.evaluate(selector => {
+                    const element = document.querySelector(selector);
+                    if (element) {
+                        // 强制滚动到视图中央
+                        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        // 使用原生 click() 绕过 Puppeteer 的可见性检查
+                        element.click();
+                    }
+                }, loginButtonSelector);
                 
                 // 4. 等待页面跳转完成。
                 await page.waitForNavigation();
@@ -115,6 +127,7 @@ async function delayTime(ms) {
             } catch (error) {
                 // ✨【重大修改点 6】: 优化错误日志，打印当前使用的选择器，便于排查。
                 let errorMessage = error.message;
+                const loginButtonSelector = 'input[type="submit"], button[type="submit"], #submit, .btn-primary, .btn-success'; // 重新定义用于日志
                 if (errorMessage.includes('Waiting for selector')) {
                     errorMessage += ` (使用的选择器: ${loginButtonSelector})`;
                 }
