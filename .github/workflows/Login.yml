@@ -1,35 +1,41 @@
-name: Login
+name: Login工作流的名称，在 GitHub Actions 界面中显示。on:定义触发工作流运行的事件。workflow_dispatch:允许手动在 GitHub 界面上点击按钮触发此工作流运行。schedule:允许按照预设的日程表自动触发此工作流。cron: '41 9 */7 * *'使用 cron 表达式定义运行时间：'41 9 */7 * *' 表示：- 每天的第 41 分钟 (41)- 每天的第 9 小时 (9) (UTC 时间)- 每隔 7 天运行一次 (*/7)- 每月 (*)- 每周的任意一天 (*)env:定义环境变量，供所有 Job 使用。ACCOUNTS_JSON: ${{ secrets.ACCOUNTS_JSON }}从 GitHub 仓库的 Secrets 中安全地读取 ACCOUNTS_JSON 变量的值。脚本会使用这个变量来获取账号信息。jobs:定义工作流中的一系列任务 (Jobs)。login:定义一个名为 'login' 的 Job。runs-on: ubuntu-latest指定运行此 Job 的操作系统环境，这里使用最新的 Ubuntu 虚拟环境。steps:定义 Job 中按顺序执行的步骤 (Steps)。- name: Checkout repository  
+  # 步骤名称：拉取代码仓库。
+  uses: actions/checkout@v3  
+  # 使用 GitHub 官方的 action，将当前仓库的代码克隆到运行环境中。
 
-on:
-  workflow_dispatch:
-  
-  schedule:
-    - cron: '41 9 */7 * *'
+- name: Set up Node.js  
+  # 步骤名称：设置 Node.js 环境。
+  uses: actions/setup-node@v3  
+  # 使用 Node.js 设置 action。
+  with:  
+  # 为该 action 提供的额外参数。
+    node-version: '20.x'  
+    # 指定安装 Node.js 20 版本的 LTS (长期支持) 版本。
 
-env:
-  ACCOUNTS_JSON: ${{ secrets.ACCOUNTS_JSON }}
+- name: Install Chromium dependencies
+  # 步骤名称：【已优化】安装 Puppeteer 依赖运行所需的系统库。
+  run: |
+    sudo apt-get update
+    sudo apt-get install -y libnss3 libnspr4 libgconf-2-4 libfontconfig1 libgbm-dev
+    # 这些库是 Chromium/Chrome 在无头 (headless) Linux 环境中运行所必需的。
 
-jobs:  
-  login:  
-    runs-on: ubuntu-latest  
-  
-    steps:  
-      - name: Checkout repository  
-        uses: actions/checkout@v3  
-  
-      - name: Set up Node.js  
-        uses: actions/setup-node@v3  
-        with:  
-          node-version: '20.x'  
-  
-      - name: Install dependencies  
-        run: npm install puppeteer  
-  
-      - name: Create accounts.json  
-        run: echo "$ACCOUNTS_JSON" > accounts.json  
-  
-      - name: Login to website  
-        run: |  
-          set -e  
-          xvfb-run --server-args="-screen 0 1280x1024x24" node login.js
+- name: Install Node.js dependencies  
+  # 步骤名称：【已优化】安装 Node.js 依赖 (Puppeteer)。
+  run: npm install puppeteer  
+  # 执行命令：安装 Puppeteer 库。
 
+- name: Create accounts.json  
+  # 步骤名称：创建 accounts.json 文件。
+  run: echo "$ACCOUNTS_JSON" > accounts.json  
+  # 执行命令：将环境变量 ACCOUNTS_JSON 的内容重定向并写入到 accounts.json 文件中。
+
+- name: Login to website  
+  # 步骤名称：运行登录脚本。
+  run: |  
+  # 运行多行 Shell 命令。
+    set -e  
+    # 确保任何命令失败时立即退出脚本执行。
+    xvfb-run --server-args="-screen 0 1280x1024x24" node login.js
+    # 使用 xvfb-run 在没有物理显示器的环境中创建一个虚拟显示器，
+    # 以支持 Puppeteer 的非 Headless 模式运行。
+    # 'node login.js' 运行您的主脚本。注意：文件名应与实际脚本名称一致（我们修改的是 index.js）。
