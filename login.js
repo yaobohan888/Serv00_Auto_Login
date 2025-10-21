@@ -67,7 +67,6 @@ async function delayTime(ms) {
                 await page.waitForSelector('#id_username', { timeout: 10000 });
                 
                 // 清空用户名输入框的原有值：点击三次选中内容，然后按退格键清除
-                // 现在的 page.click 和 page.keyboard.press 可以直接在等待元素后使用。
                 await page.click('#id_username', { clickCount: 3 }); 
                 await page.keyboard.press('Backspace');
 
@@ -76,8 +75,11 @@ async function delayTime(ms) {
                 await page.type('#id_password', password);
 
                 // 3. 等待并点击登录按钮
-                const loginButtonSelector = '#submit';
-                // ✨【重大修改点 3】: 强制等待登录按钮加载完成，最长等待 10 秒。
+                // const loginButtonSelector = '#submit'; // 旧的 ID 选择器，已失效
+                // ✨【重大修改点 3】: 更改为更通用的类型选择器 'input[type="submit"]'，解决 #submit 找不到的错误。
+                const loginButtonSelector = 'input[type="submit"]';
+                
+                // 强制等待登录按钮加载完成，最长等待 10 秒。
                 await page.waitForSelector(loginButtonSelector, { timeout: 10000 });
                 
                 // 提交登录表单
