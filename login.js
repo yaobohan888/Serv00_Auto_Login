@@ -1,174 +1,84 @@
-// 引入 Node.js 内置的文件系统模块，用于读取 accounts.json 文件。
 const fs = require('fs');
-// 引入 Puppeteer 库，用于控制 Chromium 浏览器，实现自动化操作。
 const puppeteer = require('puppeteer');
 
-/**
- * 将 Date 对象格式化为 YYYY-MM-DD HH:MM:SS 格式的字符串。
- * @param {Date} date - 要格式化的日期对象。
- * @returns {string} 格式化后的日期时间字符串。
- */
 function formatToISO(date) {
-    // 调用 toISOString() 获取标准 ISO 格式，然后进行替换清理，移除 'T'、'Z' 和毫秒部分。
-    return date.toISOString().replace('T', ' ').replace('Z', '').replace(/\.\d{3}Z/, '');
+  return date.toISOString().replace('T', ' ').replace('Z', '').replace(/\.\d{3}Z/, '');
 }
 
-/**
- * 异步延时函数，用于暂停脚本执行一段时间。
- * @param {number} ms - 延时的毫秒数。
- * @returns {Promise<void>}
- */
 async function delayTime(ms) {
-    // 返回一个 Promise，在 setTimeout 指定的时间后 resolve。
-    return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// 立即执行的异步函数表达式 (IIFE)，作为脚本的主入口点。
 (async () => {
+  // 读取 accounts.json 中的 JSON 字符串
+  const accountsJson = fs.readFileSync('accounts.json', 'utf-8');
+  const accounts = JSON.parse(accountsJson);
+
+  for (const account of accounts) {
+    const { username, password, panelnum } = account;
+
+    const browser = await puppeteer.launch({ headless: false });
+    const page = await browser.newPage();
+
+    let url = `https://panel${panelnum}.serv00.com/login/?next=/`;
+
     try {
-        // 读取 accounts.json 中的 JSON 字符串。使用同步方法读取，确保文件内容已获取。
-        const accountsJson = fs.readFileSync('accounts.json', 'utf-8');
-        // 将 JSON 字符串解析成 JavaScript 数组或对象。
-        const accounts = JSON.parse(accountsJson);
+      // 修改网址为新的登录页面
+      await page.goto(url);
 
-        // 遍历 accounts 数组中的每一个账号对象。
-        for (const account of accounts) {
-            // 使用解构赋值提取当前账号的用户名、密码和面板编号。
-            const { username, password, panelnum } = account;
+      // 清空用户名输入框的原有值
+      const usernameInput = await page.$('#id_username');
+      if (usernameInput) {
+        await usernameInput.click({ clickCount: 3 }); // 选中输入框的内容
+        await usernameInput.press('Backspace'); // 删除原来的值
+      }
 
-            // 启动一个新的 Chromium 浏览器实例。
-            const browser = await puppeteer.launch({
-                // ✨【重大修改点 1】: headless 模式保持为 true，以在 CI/CD 环境中稳定运行。
-                headless: true, 
-                // args: 传入给 Chromium 进程的命令行参数。
-                args: [
-                    '--no-sandbox', // 禁用沙盒模式 (常见于 CI/Docker 环境)
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage', // 优化内存使用
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--single-process' // 强制使用单进程模式
-                ]
-            });
-            // 在浏览器中创建一个新的页面 (Tab) 实例。
-            const page = await browser.newPage();
+      // 输入实际的账号和密码
+      await page.type('#id_username', username);
+      await page.type('#id_password', password);
 
-            // 根据 panelnum 构造 Serv00 面板的登录 URL。
-            let url = `https://panel${panelnum}.serv00.com/login/?next=/`;
+      // 提交登录表单
+      const loginButton = await page.$('#submit');
+      if (loginButton) {
+        await loginButton.click();
+      } else {
+        throw new Error('无法找到登录按钮');
+      }
 
-            // ✨【重大修改点 3/4/8 统一管理】: 定义最鲁棒的组合选择器，用于登录按钮和日志。
-            const loginButtonSelector = 'input[type="submit"], button[type="submit"], #submit, .btn-primary, .btn-success';
+      // 等待登录成功（如果有跳转页面的话）
+      await page.waitForNavigation();
 
-            try {
-                // 导航到构造的登录页面 URL。
-                await page.goto(url);
+      // 判断是否登录成功
+      const isLoggedIn = await page.evaluate(() => {
+        const logoutButton = document.querySelector('a[href="/logout/"]');
+        return logoutButton !== null;
+      });
 
-                // ✨【新增修改点 5】: 强制等待 3 秒，以应对页面 JavaScript 延迟加载表单或按钮的问题。
-                await delayTime(3000); 
+      if (isLoggedIn) {
+        // 获取当前的UTC时间和北京时间
+        const nowUtc = formatToISO(new Date());// UTC时间
+        const nowBeijing = formatToISO(new Date(new Date().getTime() + 8 * 60 * 60 * 1000)); // 北京时间东8区，用算术来搞
+        console.log(`账号 ${username} 于北京时间 ${nowBeijing}（UTC时间 ${nowUtc}）登录成功！`);
+      } else {
+        console.error(`账号 ${username} 登录失败，请检查账号和密码是否正确。`);
+      }
+    } catch (error) {
+      console.error(`账号 ${username} 登录时出现错误: ${error}`);
+    } finally {
+      // 关闭页面和浏览器
+      await page.close();
+      await browser.close();
 
-                // 1. 等待用户名输入框加载完成
-                // ✨【重大修改点 2】: 增加等待时间至 15 秒 (15000ms)。
-                await page.waitForSelector('#id_username', { timeout: 15000 });
-                
-                // 清空用户名输入框的原有值
-                // ✨【新增修改点 7】: 使用 evaluate 强制清空输入框值，替代容易出错的 triple-click + backspace。
-                await page.evaluate(() => {
-                    const input = document.querySelector('#id_username');
-                    if (input) input.value = '';
-                });
-
-                // 2. 输入实际的账号和密码
-                await page.type('#id_username', username);
-                await page.type('#id_password', password);
-
-                // 3. 等待并点击登录按钮
-                await page.waitForSelector(loginButtonSelector, { timeout: 15000 });
-                
-                // 提交登录表单
-                await page.evaluate(selector => {
-                    const element = document.querySelector(selector);
-                    if (element) {
-                        // 强制滚动到视图中央
-                        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        // 使用原生 click() 绕过 Puppeteer 的可见性检查
-                        element.click();
-                    }
-                }, loginButtonSelector);
-                
-                // ✨【新增修改点 9】: 等待 1 秒，检查页面是否显示了登录失败的错误信息。
-                await delayTime(1000); 
-
-                // 检查登录是否失败（应用错误）
-                const errorSelector = '.errorlist, .alert-danger, .error-message, .alert.alert-danger';
-                const errorElement = await page.$(errorSelector);
-
-                if (errorElement) {
-                    const errorMessage = await page.evaluate(el => el.textContent.trim(), errorElement);
-                    console.error(`账号 ${username} 登录失败: 网站返回错误信息: "${errorMessage}"。请检查账号和密码是否正确。`);
-                    
-                    // 如果发现登录失败提示，则直接跳到 finally 块，处理下一个账号。
-                    await browser.close(); 
-                    const delay = Math.floor(Math.random() * 8000) + 1000; 
-                    await delayTime(delay);
-                    return; // 退出当前循环迭代
-                }
-
-                // 4. 等待页面跳转完成。
-                await page.waitForNavigation({ timeout: 15000 });
-
-                // === 登录判断 ===
-                
-                // 在浏览器环境中执行代码，判断是否登录成功。
-                const isLoggedIn = await page.evaluate(() => {
-                    // 尝试查找指向 "/logout/" 的链接（即登出按钮）。
-                    const logoutButton = document.querySelector('a[href="/logout/"]');
-                    // 如果找到了登出按钮，则认为登录成功。
-                    return logoutButton !== null;
-                });
-
-                // 根据登录结果输出信息。
-                if (isLoggedIn) {
-                    // 获取当前的 UTC 时间并格式化。
-                    const nowUtc = formatToISO(new Date());// UTC时间
-                    // 通过时间戳计算获取当前的北京时间（东八区：当前时间 + 8小时）。
-                    const nowBeijing = formatToISO(new Date(new Date().getTime() + 8 * 60 * 60 * 1000)); 
-                    // 输出登录成功的日志。
-                    console.log(`账号 ${username} 于北京时间 ${nowBeijing}（UTC时间 ${nowUtc}）登录成功！`);
-                } else {
-                    // Log generic failure if no logout button is found after navigation.
-                    console.error(`账号 ${username} 登录失败，可能原因：账号密码错误或未跳转到主页，且未检测到错误提示。`);
-                }
-            } catch (error) {
-                // ✨【重大修改点 6】: 优化错误日志，打印当前使用的选择器，便于排查。
-                let errorMessage = error.message;
-                if (errorMessage.includes('Waiting for selector')) {
-                    errorMessage += ` (使用的选择器: ${loginButtonSelector})`;
-                }
-                console.error(`账号 ${username} 登录时出现脚本错误: ${errorMessage}`);
-            } finally {
-                // 无论 try 块是否成功，此块代码都会执行。
-                // 确保浏览器和页面在非应用失败跳过时被关闭。
-                if (page && !page.isClosed()) await page.close();
-                if (browser) await browser.close();
-                
-
-                // 生成一个 1000ms (1秒) 到 8999ms (约9秒) 之间的随机延时。
-                const delay = Math.floor(Math.random() * 8000) + 1000; 
-                // 执行延时，暂停进入下一个账号的循环。
-                await delayTime(delay);
-            }
-        }
-
-        // 所有账号处理完成后，输出完成消息。
-        console.log('所有账号登录完成！');
-
-    } catch (e) {
-        // 处理读取或解析 accounts.json 文件时发生的错误。
-        console.error(`脚本启动错误，请检查 accounts.json 文件：${e.message}`);
+      // 用户之间添加随机延时
+      const delay = Math.floor(Math.random() * 8000) + 1000; // 随机延时1秒到8秒之间
+      await delayTime(delay);
     }
+  }
+
+  console.log('所有账号登录完成！');
 })();
-// **注意：由于 delayTime 已在前面定义，此处的定义是冗余的，不影响程序运行。**
-// function delayTime(ms) {
-//      return new Promise(resolve => setTimeout(resolve, ms));
-// }
+
+// 自定义延时函数
+function delayTime(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
