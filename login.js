@@ -38,8 +38,8 @@ async function delayTime(ms) {
 
             // 启动一个新的 Chromium 浏览器实例。
             const browser = await puppeteer.launch({
-                // ✨【重大修改点 1】: 将 headless 改为 true，在无头环境 (如 xvfb-run) 下更稳定和高效。
-                headless: true, 
+                // ✨【重大修改点 1】: headless 模式保持为 true，以在 CI/CD 环境中稳定运行。
+                headless: true, 
                 // args: 传入给 Chromium 进程的命令行参数。
                 args: [
                     '--no-sandbox', // 禁用沙盒模式 (常见于 CI/Docker 环境)
@@ -61,13 +61,15 @@ async function delayTime(ms) {
                 // 导航到构造的登录页面 URL。
                 await page.goto(url);
 
-                // ✨【重大修改点 2】: 使用 page.waitForSelector 强制等待元素加载，解决“找不到元素”的问题。
-                
-                // 1. 等待用户名输入框加载完成，最长等待 10 秒
-                await page.waitForSelector('#id_username', { timeout: 10000 });
+                // ✨【新增修改点 5】: 强制等待 3 秒，以应对页面 JavaScript 延迟加载表单或按钮的问题。
+                await delayTime(3000); 
+
+                // 1. 等待用户名输入框加载完成
+                // ✨【重大修改点 2】: 增加等待时间至 15 秒 (15000ms)。
+                await page.waitForSelector('#id_username', { timeout: 15000 });
                 
                 // 清空用户名输入框的原有值：点击三次选中内容，然后按退格键清除
-                await page.click('#id_username', { clickCount: 3 }); 
+                await page.click('#id_username', { clickCount: 3 }); 
                 await page.keyboard.press('Backspace');
 
                 // 2. 输入实际的账号和密码
@@ -75,12 +77,12 @@ async function delayTime(ms) {
                 await page.type('#id_password', password);
 
                 // 3. 等待并点击登录按钮
-                // const loginButtonSelector = '#submit'; // 旧的 ID 选择器，已失效
-                // ✨【重大修改点 3】: 更改为更通用的类型选择器 'input[type="submit"]'，解决 #submit 找不到的错误。
-                const loginButtonSelector = 'input[type="submit"]';
+                // ✨【重大修改点 3】: 采用最鲁棒的组合选择器，同时查找 input 和 button 类型的提交按钮，以及常见的 ID/Class。
+                const loginButtonSelector = 'input[type="submit"], button[type="submit"], #submit, .btn-primary, .btn-success';
                 
-                // 强制等待登录按钮加载完成，最长等待 10 秒。
-                await page.waitForSelector(loginButtonSelector, { timeout: 10000 });
+                // 强制等待登录按钮加载完成。
+                // ✨【重大修改点 4】: 增加等待时间至 15 秒 (15000ms)。
+                await page.waitForSelector(loginButtonSelector, { timeout: 15000 });
                 
                 // 提交登录表单
                 await page.click(loginButtonSelector);
@@ -103,16 +105,20 @@ async function delayTime(ms) {
                     // 获取当前的 UTC 时间并格式化。
                     const nowUtc = formatToISO(new Date());// UTC时间
                     // 通过时间戳计算获取当前的北京时间（东八区：当前时间 + 8小时）。
-                    const nowBeijing = formatToISO(new Date(new Date().getTime() + 8 * 60 * 60 * 1000)); 
+                    const nowBeijing = formatToISO(new Date(new Date().getTime() + 8 * 60 * 60 * 1000)); 
                     // 输出登录成功的日志。
                     console.log(`账号 ${username} 于北京时间 ${nowBeijing}（UTC时间 ${nowUtc}）登录成功！`);
                 } else {
                     // 输出登录失败的错误日志。
-                    console.error(`账号 ${username} 登录失败，请检查账号和密码是否正确。`);
+                    console.error(`账号 ${username} 登录失败，可能原因：账号密码错误或未跳转到主页。`);
                 }
             } catch (error) {
-                // ✨【重大修改点 4】: 更改错误日志输出，使用 error.message 以便在出现超时等错误时输出更清晰的信息。
-                console.error(`账号 ${username} 登录时出现错误: ${error.message}`);
+                // ✨【重大修改点 6】: 优化错误日志，打印当前使用的选择器，便于排查。
+                let errorMessage = error.message;
+                if (errorMessage.includes('Waiting for selector')) {
+                    errorMessage += ` (使用的选择器: ${loginButtonSelector})`;
+                }
+                console.error(`账号 ${username} 登录时出现错误: ${errorMessage}`);
             } finally {
                 // 无论 try 块是否成功，此块代码都会执行。
                 // 关闭当前页面。
@@ -121,7 +127,7 @@ async function delayTime(ms) {
                 await browser.close();
 
                 // 生成一个 1000ms (1秒) 到 8999ms (约9秒) 之间的随机延时。
-                const delay = Math.floor(Math.random() * 8000) + 1000; 
+                const delay = Math.floor(Math.random() * 8000) + 1000; 
                 // 执行延时，暂停进入下一个账号的循环。
                 await delayTime(delay);
             }
@@ -135,8 +141,7 @@ async function delayTime(ms) {
         console.error(`脚本启动错误，请检查 accounts.json 文件：${e.message}`);
     }
 })();
-
-// 注意：这个 delayTime 函数在前面已经定义过，属于冗余定义，但不会影响程序运行。
+// **注意：由于 delayTime 已在前面定义，此处的定义是冗余的，不影响程序运行。**
 // function delayTime(ms) {
-//     return new Promise(resolve => setTimeout(resolve, ms));
+//      return new Promise(resolve => setTimeout(resolve, ms));
 // }
