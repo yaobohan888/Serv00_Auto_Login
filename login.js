@@ -1,41 +1,84 @@
+const fs = require('fs');
 const puppeteer = require('puppeteer');
 
+function formatToISO(date) {
+  return date.toISOString().replace('T', ' ').replace('Z', '').replace(/\.\d{3}Z/, '');
+}
+
+async function delayTime(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 (async () => {
+  // 读取 accounts.json 中的 JSON 字符串
+  const accountsJson = fs.readFileSync('accounts.json', 'utf-8');
+  const accounts = JSON.parse(accountsJson);
+
+  for (const account of accounts) {
+    const { username, password, panelnum } = account;
+
+    const browser = await puppeteer.launch({ headless: false });
+    const page = await browser.newPage();
+
+    let url = `https://panel${panelnum}.serv00.com/login/?next=/`;
+
     try {
-        // 启动浏览器，增加无沙箱参数，适合 CI/CD 或 Linux 环境
-        const browser = await puppeteer.launch({
-            headless: true, // 无头模式
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox'
-            ]
-        });
+      // 修改网址为新的登录页面
+      await page.goto(url);
 
-        const page = await browser.newPage();
+      // 清空用户名输入框的原有值
+      const usernameInput = await page.$('#id_username');
+      if (usernameInput) {
+        await usernameInput.click({ clickCount: 3 }); // 选中输入框的内容
+        await usernameInput.press('Backspace'); // 删除原来的值
+      }
 
-        // 打开登录页面
-        await page.goto('https://panel6.serv00.com/', { waitUntil: 'networkidle2' });
+      // 输入实际的账号和密码
+      await page.type('#id_username', username);
+      await page.type('#id_password', password);
 
-        // 填写登录信息
-        await page.type('#username', '你的用户名');  // 替换为你的用户名
-        await page.type('#password', '你的密码');   // 替换为你的密码
+      // 提交登录表单
+      const loginButton = await page.$('#submit');
+      if (loginButton) {
+        await loginButton.click();
+      } else {
+        throw new Error('无法找到登录按钮');
+      }
 
-        // 点击登录按钮
-        await page.click('#loginButton');
+      // 等待登录成功（如果有跳转页面的话）
+      await page.waitForNavigation();
 
-        // 等待页面跳转完成
-        await page.waitForNavigation({ waitUntil: 'networkidle0' });
+      // 判断是否登录成功
+      const isLoggedIn = await page.evaluate(() => {
+        const logoutButton = document.querySelector('a[href="/logout/"]');
+        return logoutButton !== null;
+      });
 
-        console.log('登录成功');
+      if (isLoggedIn) {
+        // 获取当前的UTC时间和北京时间
+        const nowUtc = formatToISO(new Date());// UTC时间
+        const nowBeijing = formatToISO(new Date(new Date().getTime() + 8 * 60 * 60 * 1000)); // 北京时间东8区，用算术来搞
+        console.log(`账号 ${username} 于北京时间 ${nowBeijing}（UTC时间 ${nowUtc}）登录成功！`);
+      } else {
+        console.error(`账号 ${username} 登录失败，请检查账号和密码是否正确。`);
+      }
+    } catch (error) {
+      console.error(`账号 ${username} 登录时出现错误: ${error}`);
+    } finally {
+      // 关闭页面和浏览器
+      await page.close();
+      await browser.close();
 
-        // 这里可以执行后续操作，例如抓取数据
-        // const data = await page.evaluate(() => {
-        //     return document.querySelector('body').innerText;
-        // });
-        // console.log(data);
-
-        await browser.close();
-    } catch (err) {
-        console.error('登录失败:', err);
+      // 用户之间添加随机延时
+      const delay = Math.floor(Math.random() * 8000) + 1000; // 随机延时1秒到8秒之间
+      await delayTime(delay);
     }
+  }
+
+  console.log('所有账号登录完成！');
 })();
+
+// 自定义延时函数
+function delayTime(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
