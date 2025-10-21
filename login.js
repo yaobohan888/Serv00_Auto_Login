@@ -37,12 +37,11 @@ async function loginAccount(browser, account) {
         await page.type('#id_username', username);
         await page.type('#id_password', password);
 
-        // 点击登录按钮并等待页面加载完成
-        await Promise.all([
-            page.click('#submit'),
-            // 等待登出链接出现，作为登录成功的标志，超时时间设置为15秒
-            page.waitForSelector('a[href="/logout/"]', { timeout: 15000 }) 
-        ]);
+        // 模拟按回车键提交表单，而不是点击按钮
+        await page.keyboard.press('Enter');
+
+        // 等待登出链接出现，作为登录成功的标志，超时时间设置为15秒
+        await page.waitForSelector('a[href="/logout/"]', { timeout: 15000 });
 
         // 获取当前的UTC时间和北京时间
         const nowUtc = formatToDateTime(new Date()); // UTC时间
@@ -66,7 +65,8 @@ async function main() {
     let browser;
     try {
         // 读取并解析 accounts.json 文件
-        const accountsJson = fs.readFileSync('accounts.json', 'utf-8');
+        // 优先从环境变量读取，如果不存在则从文件读取
+        const accountsJson = process.env.ACCOUNTS_JSON || fs.readFileSync('accounts.json', 'utf-8');
         const accounts = JSON.parse(accountsJson);
 
         console.log('启动浏览器...');
