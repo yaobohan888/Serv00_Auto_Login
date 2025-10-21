@@ -1,84 +1,101 @@
 const fs = require('fs');
 const puppeteer = require('puppeteer');
 
-function formatToISO(date) {
-  return date.toISOString().replace('T', ' ').replace('Z', '').replace(/\.\d{3}Z/, '');
+/**
+ * 将 Date 对象格式化为 'YYYY-MM-DD HH:MM:SS' 格式的字符串
+ * @param {Date} date - 日期对象
+ * @returns {string} 格式化后的日期字符串
+ */
+function formatToDateTime(date) {
+    return date.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
 }
 
-async function delayTime(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+/**
+ * 暂停指定毫秒数
+ * @param {number} ms - 暂停的毫秒数
+ * @returns {Promise<void>}
+ */
+function delayTime(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-(async () => {
-  // 读取 accounts.json 中的 JSON 字符串
-  const accountsJson = fs.readFileSync('accounts.json', 'utf-8');
-  const accounts = JSON.parse(accountsJson);
-
-  for (const account of accounts) {
+/**
+ * 单个账户的登录流程
+ * @param {object} browser - Puppeteer 浏览器实例
+ * @param {object} account - 包含用户名、密码和面板编号的账户对象
+ */
+async function loginAccount(browser, account) {
     const { username, password, panelnum } = account;
-
-    const browser = await puppeteer.launch({ headless: false });
     const page = await browser.newPage();
-
-    let url = `https://panel${panelnum}.serv00.com/login/?next=/`;
+    const url = `https://panel${panelnum}.serv00.com/login/?next=/`;
 
     try {
-      // 修改网址为新的登录页面
-      await page.goto(url);
+        console.log(`[${username}] - 正在尝试登录...`);
+        await page.goto(url, { waitUntil: 'networkidle2' });
 
-      // 清空用户名输入框的原有值
-      const usernameInput = await page.$('#id_username');
-      if (usernameInput) {
-        await usernameInput.click({ clickCount: 3 }); // 选中输入框的内容
-        await usernameInput.press('Backspace'); // 删除原来的值
-      }
+        // 输入账号和密码
+        await page.type('#id_username', username);
+        await page.type('#id_password', password);
 
-      // 输入实际的账号和密码
-      await page.type('#id_username', username);
-      await page.type('#id_password', password);
+        // 点击登录按钮并等待页面加载完成
+        await Promise.all([
+            page.click('#submit'),
+            // 等待登出链接出现，作为登录成功的标志，超时时间设置为15秒
+            page.waitForSelector('a[href="/logout/"]', { timeout: 15000 }) 
+        ]);
 
-      // 提交登录表单
-      const loginButton = await page.$('#submit');
-      if (loginButton) {
-        await loginButton.click();
-      } else {
-        throw new Error('无法找到登录按钮');
-      }
-
-      // 等待登录成功（如果有跳转页面的话）
-      await page.waitForNavigation();
-
-      // 判断是否登录成功
-      const isLoggedIn = await page.evaluate(() => {
-        const logoutButton = document.querySelector('a[href="/logout/"]');
-        return logoutButton !== null;
-      });
-
-      if (isLoggedIn) {
         // 获取当前的UTC时间和北京时间
-        const nowUtc = formatToISO(new Date());// UTC时间
-        const nowBeijing = formatToISO(new Date(new Date().getTime() + 8 * 60 * 60 * 1000)); // 北京时间东8区，用算术来搞
-        console.log(`账号 ${username} 于北京时间 ${nowBeijing}（UTC时间 ${nowUtc}）登录成功！`);
-      } else {
-        console.error(`账号 ${username} 登录失败，请检查账号和密码是否正确。`);
-      }
+        const nowUtc = formatToDateTime(new Date()); // UTC时间
+        const nowBeijing = formatToDateTime(new Date(Date.now() + 8 * 60 * 60 * 1000)); // 北京时间 (UTC+8)
+
+        console.log(`✅ [${username}] - 登录成功！`);
+        console.log(`   - 北京时间: ${nowBeijing}`);
+        console.log(`   - UTC 时间: ${nowUtc}`);
+
     } catch (error) {
-      console.error(`账号 ${username} 登录时出现错误: ${error}`);
+        console.error(`❌ [${username}] - 登录失败或超时。错误信息: ${error.message.split('\n')[0]}`);
     } finally {
-      // 关闭页面和浏览器
-      await page.close();
-      await browser.close();
-
-      // 用户之间添加随机延时
-      const delay = Math.floor(Math.random() * 8000) + 1000; // 随机延时1秒到8秒之间
-      await delayTime(delay);
+        await page.close(); // 完成后关闭页面
     }
-  }
-
-  console.log('所有账号登录完成！');
-})();
-
-// 自定义延时函数
-function delayTime(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+/**
+ * 主执行函数
+ */
+async function main() {
+    let browser;
+    try {
+        // 读取并解析 accounts.json 文件
+        const accountsJson = fs.readFileSync('accounts.json', 'utf-8');
+        const accounts = JSON.parse(accountsJson);
+
+        console.log('启动浏览器...');
+        // 启动一个浏览器实例用于所有操作
+        // 在 CI/CD 环境中，必须添加 --no-sandbox 参数并使用无头模式
+        browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+
+        for (const account of accounts) {
+            await loginAccount(browser, account);
+
+            // 在处理下一个用户前，增加一个随机延时
+            const delay = Math.floor(Math.random() * 8000) + 1000; // 随机延时1到8秒
+            console.log(`--- 等待 ${delay / 1000} 秒后继续... ---\n`);
+            await delayTime(delay);
+        }
+
+    } catch (error) {
+        console.error(`脚本执行时发生严重错误: ${error}`);
+    } finally {
+        if (browser) {
+            await browser.close(); // 所有账户处理完毕后关闭浏览器
+        }
+        console.log('所有账号处理完成，浏览器已关闭。');
+    }
+}
+
+// 运行主函数
+main();
+
